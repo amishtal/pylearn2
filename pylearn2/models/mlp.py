@@ -2381,6 +2381,19 @@ class FlattenerLayer(Layer):
     def get_weights(self):
         return self.raw_layer.get_weights()
 
+class SelectionLayer(Layer):
+    def __init__(self, n_to_keep):
+        self.n_to_keep = n_to_keep
+
+    def set_input_space(self, space):
+        self.input_space = space
+        self.output_space = self.input_space
+
+    def fprop(self, state_below):
+        pass
+
+
+
 
 def generate_dropout_mask(mlp, default_include_prob=0.5,
                           input_include_probs=None, rng=(2013, 5, 17)):
