@@ -510,3 +510,12 @@ class FiniteDatasetIteratorPyTables(FiniteDatasetIterator):
             return rval
 
 
+class EnvironmentIterator():
+    def __init__(self):
+        pass
+
+    def next(self):
+        pass
+
+    def __iter__(self):
+        return self
