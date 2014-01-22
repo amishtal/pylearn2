@@ -1,0 +1,10 @@
+Agents contain a Model paired with a Training Algorithm.
+
+Environments have a Data Spec (maybe?).
+Matching tuples of strings and Spaces describing the data,
+ namely the observations, state, and rewards, provided by
+ the environment.
+
+Agents have a Data Spec (maybe?).
+Matching tuples of strings and Spaces describing the
+ actions 
