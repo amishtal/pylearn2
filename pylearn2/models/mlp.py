@@ -2231,6 +2231,63 @@ class RectifiedLinear(Linear):
         """
         raise NotImplementedError()
 
+class SelectiveRectifiedLinear(RectifiedLinear):
+    def fprop(self, state_below):
+        p = self._linear_part(state_below)
+
+        original_winners = p * (p > 0.)
+        original_winners.name = 'original_winners'
+
+        avg_level = T.sum(original_winners) / (T.sum(p > 0) + 1e-10)
+        avg_level.name = 'avg_level'
+
+        after_competition = T.clip(original_winners - avg_level, 0., 1e30)
+        after_competition.name = 'after_competition'
+
+        restored = after_competition + (after_competition > 0)*avg_level
+        restored = T.clip(restored, self.left_slope, 1e30)
+        restored.name = 'restored'
+
+
+        #p = T.clip(p - T.mean(p, 1).dimshuffle(0, 'x'), self.left_slope, 1e30)
+        return restored
+
+class AveragingLayer(Linear):
+    def __init__(self, dim=1, **kwargs):
+        super(AveragingLayer, self).__init__(dim=dim, **kwargs)
+
+    def set_input_space(self, space):
+        self.input_space = space
+
+        if isinstance(space, VectorSpace):
+            self.requires_reformat = False
+            self.input_dim = space.dim
+        else:
+            self.requires_reformat = True
+            self.input_dim = space.get_total_dimension()
+            self.desired_space = VectorSpace(self.input_dim)
+
+        self.output_space = VectorSpace(1)
+
+    def fprop(self, state_below):
+        self.input_space.validate(state_below)
+
+        if self.requires_reformat:
+            if not isinstance(state_below, tuple):
+                for sb in get_debug_values(state_below):
+                    if sb.shape[0] != self.dbm.batch_size:
+                        raise ValueError("self.dbm.batch_size is %d but got shape of %d" % (self.dbm.batch_size, sb.shape[0]))
+                    assert reduce(lambda x,y: x * y, sb.shape[1:]) == self.input_dim
+
+            state_below = self.input_space.format_as(state_below, self.desired_space)
+
+        return T.mean(state_below, axis=1).dimshuffle('x', 0)
+
+    def get_params(self):
+        return []
+
+    # For now, use cost from Linear. (Squared error)
+
 class SpaceConverter(Layer):
     """
     .. todo::
@@ -3205,16 +3262,26 @@ class FlattenerLayer(Layer):
         """
         return self.raw_layer.get_weights()
 
+"""
 class SelectionLayer(Layer):
-    def __init__(self, n_to_keep):
+    def __init__(self, layer_name, n_to_keep, what_to_keep):
+        assert what_to_keep in ['most_positive', 'most_negative', 'most_abs']
+        self.layer_name = layer_name
+        self.what_to_keep = what_to_keep
         self.n_to_keep = n_to_keep
+        self._params = []
 
     def set_input_space(self, space):
         self.input_space = space
         self.output_space = self.input_space
 
     def fprop(self, state_below):
-        pass
+        if self.what_to_keep == 'most_positive':
+            sorted = T.sort(state_below, axis=1)
+            nth = sorted[:,self.n_to_keep]
+            rval = state_below * (state_below > nth.dimshuffle(0,'x'))
+        return rval
+"""
 
 
 
