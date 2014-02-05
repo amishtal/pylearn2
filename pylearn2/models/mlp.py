@@ -1,8 +1,5 @@
 """
 Multilayer Perceptron
-
-Note to developers and code reviewers: when making any changes to this
-module, ensure that the changes do not break pylearn2/scripts/papers/maxout.
 """
 __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2012-2013, Universite de Montreal"
@@ -37,6 +34,7 @@ from pylearn2.utils import py_integer_types
 from pylearn2.utils import safe_union
 from pylearn2.utils import safe_zip
 from pylearn2.utils import sharedX
+from pylearn2.utils import wraps
 
 warnings.warn("MLP changing the recursion limit.")
 # We need this to be high enough that the big theano graphs we make
@@ -57,16 +55,17 @@ sys.setrecursionlimit(40000)
 
 class Layer(Model):
     """
-    Abstract class.
-    A Layer of an MLP
+    Abstract class. A Layer of an MLP.
+
     May only belong to one MLP.
 
-    Note: this is not currently a Block because as far as I know
-        the Block interface assumes every input is a single matrix.
-        It doesn't support using Spaces to work with composite inputs,
-        stacked multichannel image inputs, etc.
-        If the Block interface were upgraded to be that flexible, then
-        we could make this a block.
+    Notes
+    -----
+    This is not currently a Block because as far as I know the Block interface
+    assumes every input is a single matrix. It doesn't support using Spaces to
+    work with composite inputs, stacked multichannel image inputs, etc. If the
+    Block interface were upgraded to be that flexible, then we could make this
+    a block.
     """
 
     # When applying dropout to a layer's input, use this for masked values.
@@ -129,8 +128,8 @@ class Layer(Model):
         The cost of outputting Y_hat when the true output is Y.  Y_hat is
         assumed to be the output of the same layer's fprop, and the
         implementation may do things like look at the ancestors of Y_hat in the
-        theano graph. This is useful for, e.g., computing numerically stable log
-        probabilities as the cost when Y_hat is the probability.
+        theano graph. This is useful for, e.g., computing numerically stable
+        log probabilities as the cost when Y_hat is the probability.
 
         Parameters
         ----------
@@ -155,9 +154,9 @@ class Layer(Model):
 
         Examples
         --------
-        C = model.cost_matrix(Y, Y_hat)
-        # Do something with C like setting some values to 0
-        cost = model.cost_from_cost_matrix(C)
+        >>> # C = model.cost_matrix(Y, Y_hat)
+        >>> # Do something with C like setting some values to 0
+        >>> # cost = model.cost_from_cost_matrix(C)
         """
 
         raise NotImplementedError(str(type(self)) +
@@ -180,6 +179,46 @@ class Layer(Model):
         raise NotImplementedError(str(type(self)) +
                                   " does not implement mlp.Layer.cost_matrix")
 
+    def get_weights(self):
+        """
+        .. todo::
+
+            WRITEME
+        """
+        raise NotImplementedError
+
+    def set_weights(self, weights):
+        """
+        .. todo::
+
+            WRITEME
+        """
+        raise NotImplementedError
+
+    def get_biases(self):
+        """
+        .. todo::
+
+            WRITEME
+        """
+        raise NotImplementedError
+
+    def set_biases(self, biases):
+        """
+        .. todo::
+
+            WRITEME
+        """
+        raise NotImplementedError
+
+    def get_weights_format(self):
+        """
+        .. todo::
+
+            WRITEME
+        """
+        raise NotImplementedError
+
     def get_weight_decay(self, coeff):
         """
         .. todo::
@@ -196,12 +235,25 @@ class Layer(Model):
         """
         raise NotImplementedError
 
+    def set_input_space(self, space):
+        """
+        .. todo::
+
+            WRITEME
+
+        Notes
+        -----
+        This usually resets parameters.
+        """
+        raise NotImplementedError
+
 
 class MLP(Layer):
     """
     A multilayer perceptron.
-    Note that it's possible for an entire MLP to be a single
-    layer of a larger MLP.
+
+    Note that it's possible for an entire MLP to be a single layer of a larger
+    MLP.
     """
 
     def __init__(self, layers, batch_size=None, input_space=None,
@@ -210,22 +262,18 @@ class MLP(Layer):
         Parameters
         ----------
         layers : list
-            A list of Layer objects. The final layer specifies \
-            the output space of this MLP.
-
+            A list of Layer objects. The final layer specifies the output space
+            of this MLP.
         batch_size : int, optional
-            If not specified then must be a positive integer. \
-            Mostly useful if one of your layers involves a \
-            Theano op like convolution that requires a hard-coded \
-            batch size.
-
+            If not specified then must be a positive integer. Mostly useful if
+            one of your layers involves a Theano op like convolution that
+            requires a hard-coded batch size.
         nvis : int, optional
-            Number of "visible units" (input units). Equivalent \
-            to specifying `input_space=VectorSpace(dim=nvis)`.
-
+            Number of "visible units" (input units). Equivalent to specifying
+            `input_space=VectorSpace(dim=nvis)`.
         input_space : Space object, optional
-            A Space specifying the kind of input the MLP accepts. \
-            If None, input space is specified by nvis.
+            A Space specifying the kind of input the MLP accepts. If None,
+            input space is specified by nvis.
         """
 
         if seed is None:
@@ -274,20 +322,14 @@ class MLP(Layer):
         """
         self.rng = np.random.RandomState(self.seed)
 
+    @wraps(Layer.get_default_cost)
     def get_default_cost(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return Default()
 
+    @wraps(Layer.get_output_space)
     def get_output_space(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[-1].get_output_space()
 
     def _update_layer_input_spaces(self):
@@ -299,8 +341,17 @@ class MLP(Layer):
         This usually resets the layer's parameters!
         """
         layers = self.layers
-        layers[0].set_input_space(self.input_space)
-        for i in xrange(1,len(layers)):
+        try:
+            layers[0].set_input_space(self.input_space)
+        except BadInputSpaceError, e:
+            raise TypeError("Layer 0 (" + str(layers[0]) + " of type " +
+                            str(type(layers[0])) +
+                            ") does not support the MLP's "
+                            + "specified input space (" +
+                            str(self.input_space) +
+                            " of type " + str(type(self.input_space)) +
+                            "). Original exception: " + str(e))
+        for i in xrange(1, len(layers)):
             layers[i].set_input_space(layers[i-1].get_output_space())
 
     def add_layers(self, layers):
@@ -331,15 +382,9 @@ class MLP(Layer):
 
         self.freeze_set = self.freeze_set.union(parameter_set)
 
+    @wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self, data):
-        """
-        WRITEME
 
-        Parameters
-        ----------
-        data : flat tuple
-            Can contain features, targets, or both
-        """
         X, Y = data
         state = X
         rval = OrderedDict()
@@ -356,14 +401,15 @@ class MLP(Layer):
             if not isinstance(ch, OrderedDict):
                 raise TypeError(str((type(ch), layer.layer_name)))
             for key in ch:
-                rval[layer.layer_name+'_'+key]  = ch[key]
+                rval[layer.layer_name+'_'+key] = ch[key]
 
         return rval
 
+    @wraps(Layer.get_monitoring_data_specs)
     def get_monitoring_data_specs(self):
         """
-        Return the (space, source) data_specs for self.get_monitoring_channels.
-
+        Notes
+        -----
         In this case, we want the inputs and targets.
         """
         space = CompositeSpace((self.get_input_space(),
@@ -371,12 +417,8 @@ class MLP(Layer):
         source = (self.get_input_source(), self.get_target_source())
         return (space, source)
 
+    @wraps(Layer.get_params)
     def get_params(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         rval = []
         for layer in self.layers:
@@ -395,34 +437,24 @@ class MLP(Layer):
 
         return rval
 
+    @wraps(Model.set_batch_size)
     def set_batch_size(self, batch_size):
-        """
-        .. todo::
 
-            WRITEME
-        """
         self.batch_size = batch_size
         self.force_batch_size = batch_size
 
         for layer in self.layers:
             layer.set_batch_size(batch_size)
 
-
+    @wraps(Layer.censor_updates)
     def censor_updates(self, updates):
-        """
-        .. todo::
 
-            WRITEME
-        """
         for layer in self.layers:
             layer.censor_updates(updates)
 
+    @wraps(Layer.get_lr_scalers)
     def get_lr_scalers(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         rval = OrderedDict()
 
         params = self.get_params()
@@ -441,36 +473,24 @@ class MLP(Layer):
 
         return rval
 
+    @wraps(Layer.get_weights)
     def get_weights(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[0].get_weights()
 
+    @wraps(Layer.get_weights_view_shape)
     def get_weights_view_shape(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[0].get_weights_view_shape()
 
+    @wraps(Layer.get_weights_format)
     def get_weights_format(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[0].get_weights_format()
 
+    @wraps(Layer.get_weights_topo)
     def get_weights_topo(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[0].get_weights_topo()
 
     def dropout_fprop(self, state_below, default_input_include_prob=0.5,
@@ -498,14 +518,15 @@ class MLP(Layer):
         default_input_scale : WRITEME
         input_scales : WRITEME
         per_example : bool, optional
-            Sample a different mask value for every example in a batch. \
-            Default is `True`. If `False`, sample one mask per mini-batch.
+            Sample a different mask value for every example in a batch.
+            Defaults to `True`. If `False`, sample one mask per mini-batch.
         """
 
-        warnings.warn("dropout doesn't use fixed_var_descr so it won't work with "
-                "algorithms that make more than one theano function call per batch,"
-                " such as BGD. Implementing fixed_var descr could increase the memory"
-                " usage though.")
+        warnings.warn("dropout doesn't use fixed_var_descr so it won't work "
+                      "with algorithms that make more than one theano "
+                      "function call per batch, such as BGD. Implementing "
+                      "fixed_var descr could increase the memory usage "
+                      "though.")
 
         if input_include_probs is None:
             input_include_probs = {}
@@ -556,19 +577,18 @@ class MLP(Layer):
         state_below : tensor_like
             The (symbolic) output state of the layer below.
         mask : int
-            An integer indexing possible binary masks. It should be \
-            < 2 ** get_total_input_dimension(masked_input_layers) \
+            An integer indexing possible binary masks. It should be
+            < 2 ** get_total_input_dimension(masked_input_layers)
             and greater than or equal to 0.
         masked_input_layers : list, optional
-            A list of layer names to mask. If `None`, the input to \
-            all layers (including the first hidden layer) is masked.
+            A list of layer names to mask. If `None`, the input to all layers
+            (including the first hidden layer) is masked.
         default_input_scale : float, optional
-            The amount to scale inputs in masked layers that do not \
-            appear in `input_scales`. Defaults to 2.
+            The amount to scale inputs in masked layers that do not appear in
+            `input_scales`. Defaults to 2.
         input_scales : dict, optional
-            A dictionary mapping layer names to floating point \
-            numbers indicating how much to scale input to a given \
-            layer.
+            A dictionary mapping layer names to floating point numbers
+            indicating how much to scale input to a given layer.
 
         Returns
         -------
@@ -647,9 +667,9 @@ class MLP(Layer):
         """
         if any(layer not in self.layer_names for layer in layers):
             unknown_names = [layer for layer in layers
-                                if layer not in self.layer_names]
+                             if layer not in self.layer_names]
             raise ValueError("MLP has no layer(s) named %s" %
-                                ", ".join(unknown_names))
+                             ", ".join(unknown_names))
 
     def get_total_input_dimension(self, layers):
         """
@@ -672,12 +692,8 @@ class MLP(Layer):
                 total += layer.get_input_space().get_total_dimension()
         return total
 
-    def fprop(self, state_below, return_all = False):
-        """
-        .. todo::
-
-            WRITEME
-        """
+    @wraps(Layer.fprop)
+    def fprop(self, state_below, return_all=False):
 
         rval = self.layers[0].fprop(state_below)
 
@@ -705,8 +721,8 @@ class MLP(Layer):
         input_space : WRITEME
         mask_value : WRITEME
         per_example : bool, optional
-            Sample a different mask value for every example in a batch. \
-            Default is `True`. If `False`, sample one mask per mini-batch.
+            Sample a different mask value for every example in a batch.
+            Defaults to `True`. If `False`, sample one mask per mini-batch.
         """
         if include_prob in [None, 1.0, 1]:
             return state
@@ -735,33 +751,26 @@ class MLP(Layer):
         else:
             return T.switch(mask, state * scale, mask_value)
 
+    @wraps(Layer.cost)
     def cost(self, Y, Y_hat):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[-1].cost(Y, Y_hat)
 
+    @wraps(Layer.cost_matrix)
     def cost_matrix(self, Y, Y_hat):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[-1].cost_matrix(Y, Y_hat)
 
+    @wraps(Layer.cost_from_cost_matrix)
     def cost_from_cost_matrix(self, cost_matrix):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layers[-1].cost_from_cost_matrix(cost_matrix)
 
     def cost_from_X(self, data):
         """
-        Computes self.cost, but takes data=(X, Y) rather than Y_hat as an argument.
+        Computes self.cost, but takes data=(X, Y) rather than Y_hat as an
+        argument.
+
         This is just a wrapper around self.cost that computes Y_hat by
         calling Y_hat = self.fprop(X)
 
@@ -785,6 +794,21 @@ class MLP(Layer):
         source = (self.get_input_source(), self.get_target_source())
         return (space, source)
 
+    def __str__(self):
+        """
+        Summarizes the MLP by printing the size and format of the input to all
+        layers. Feel free to add reasonably concise info as needed.
+        """
+        rval = []
+        for layer in self.layers:
+            rval.append(layer.layer_name)
+            input_space = layer.get_input_space()
+            rval.append('\tInput space: ' + str(input_space))
+            rval.append('\tTotal input dimension: ' +
+                        str(input_space.get_total_dimension()))
+        rval = '\n'.join(rval)
+        return rval
+
 
 class Softmax(Layer):
     """
@@ -792,12 +816,12 @@ class Softmax(Layer):
 
         WRITEME
     """
-    def __init__(self, n_classes, layer_name, irange = None,
-            istdev = None,
-                 sparse_init = None, W_lr_scale = None,
-                 b_lr_scale = None, max_row_norm = None,
-                 no_affine = False,
-                 max_col_norm = None, init_bias_target_marginals= None):
+    def __init__(self, n_classes, layer_name, irange=None,
+                 istdev=None,
+                 sparse_init=None, W_lr_scale=None,
+                 b_lr_scale=None, max_row_norm=None,
+                 no_affine=False,
+                 max_col_norm=None, init_bias_target_marginals=None):
         """
         .. todo::
 
@@ -815,7 +839,7 @@ class Softmax(Layer):
 
         self.output_space = VectorSpace(n_classes)
         if not no_affine:
-            self.b = sharedX( np.zeros((n_classes,)), name = 'softmax_b')
+            self.b = sharedX(np.zeros((n_classes,)), name='softmax_b')
             if init_bias_target_marginals:
                 marginals = init_bias_target_marginals.y.mean(axis=0)
                 assert marginals.ndim == 1
@@ -826,12 +850,8 @@ class Softmax(Layer):
         else:
             assert init_bias_target_marginals is None
 
+    @wraps(Layer.get_lr_scalers)
     def get_lr_scalers(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         rval = OrderedDict()
 
@@ -848,12 +868,8 @@ class Softmax(Layer):
 
         return rval
 
+    @wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         if self.no_affine:
             return OrderedDict()
@@ -867,29 +883,21 @@ class Softmax(Layer):
         row_norms = T.sqrt(sq_W.sum(axis=1))
         col_norms = T.sqrt(sq_W.sum(axis=0))
 
-        return OrderedDict([
-                            ('row_norms_min'  , row_norms.min()),
-                            ('row_norms_mean' , row_norms.mean()),
-                            ('row_norms_max'  , row_norms.max()),
-                            ('col_norms_min'  , col_norms.min()),
-                            ('col_norms_mean' , col_norms.mean()),
-                            ('col_norms_max'  , col_norms.max()),
-                            ])
+        return OrderedDict([('row_norms_min',  row_norms.min()),
+                            ('row_norms_mean', row_norms.mean()),
+                            ('row_norms_max',  row_norms.max()),
+                            ('col_norms_min',  col_norms.min()),
+                            ('col_norms_mean', col_norms.mean()),
+                            ('col_norms_max',  col_norms.max()), ])
 
+    @wraps(Layer.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state, target=None):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         mx = state.max(axis=1)
 
-        rval =  OrderedDict([
-                ('mean_max_class' , mx.mean()),
-                ('max_max_class' , mx.max()),
-                ('min_max_class' , mx.min())
-        ])
+        rval = OrderedDict([('mean_max_class', mx.mean()),
+                            ('max_max_class', mx.max()),
+                            ('min_max_class', mx.min())])
 
         if target is not None:
             y_hat = T.argmax(state, axis=1)
@@ -901,17 +909,14 @@ class Softmax(Layer):
 
         return rval
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
 
-            WRITEME
-        """
         self.input_space = space
 
         if not isinstance(space, Space):
-            raise TypeError("Expected Space, got "+
-                    str(space)+" of type "+str(type(space)))
+            raise TypeError("Expected Space, got " +
+                            str(space)+" of type "+str(type(space)))
 
         self.input_dim = space.get_total_dimension()
         self.needs_reformat = not isinstance(space, VectorSpace)
@@ -934,7 +939,9 @@ class Softmax(Layer):
             if self.irange is not None:
                 assert self.istdev is None
                 assert self.sparse_init is None
-                W = rng.uniform(-self.irange,self.irange, (self.input_dim,self.n_classes))
+                W = rng.uniform(-self.irange,
+                                self.irange,
+                                (self.input_dim, self.n_classes))
             elif self.istdev is not None:
                 assert self.sparse_init is None
                 W = rng.randn(self.input_dim, self.n_classes) * self.istdev
@@ -948,81 +955,65 @@ class Softmax(Layer):
                             idx = rng.randint(0, self.input_dim)
                         W[idx, i] = rng.randn()
 
-            self.W = sharedX(W,  'softmax_W' )
+            self.W = sharedX(W,  'softmax_W')
 
-            self._params = [ self.b, self.W ]
+            self._params = [self.b, self.W]
 
+    @wraps(Layer.get_weights_topo)
     def get_weights_topo(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if not isinstance(self.input_space, Conv2DSpace):
             raise NotImplementedError()
         desired = self.W.get_value().T
         ipt = self.desired_space.format_as(desired, self.input_space)
-        rval = Conv2DSpace.convert_numpy(ipt, self.input_space.axes, ('b', 0, 1, 'c'))
+        rval = Conv2DSpace.convert_numpy(ipt,
+                                         self.input_space.axes,
+                                         ('b', 0, 1, 'c'))
         return rval
 
+    @wraps(Layer.get_weights)
     def get_weights(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if not isinstance(self.input_space, VectorSpace):
             raise NotImplementedError()
 
         return self.W.get_value()
 
+    @wraps(Layer.set_weights)
     def set_weights(self, weights):
-        """
-        .. todo::
 
-            WRITEME
-        """
         self.W.set_value(weights)
 
+    @wraps(Layer.set_biases)
     def set_biases(self, biases):
-        """
-        .. todo::
 
-            WRITEME
-        """
         self.b.set_value(biases)
 
+    @wraps(Layer.get_biases)
     def get_biases(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.b.get_value()
 
+    @wraps(Layer.get_weights_format)
     def get_weights_format(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return ('v', 'h')
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         self.input_space.validate(state_below)
 
         if self.needs_reformat:
-            state_below = self.input_space.format_as(state_below, self.desired_space)
+            state_below = self.input_space.format_as(state_below,
+                                                     self.desired_space)
 
         for value in get_debug_values(state_below):
-            if self.mlp.batch_size is not None and value.shape[0] != self.mlp.batch_size:
-                raise ValueError("state_below should have batch size "+str(self.dbm.batch_size)+" but has "+str(value.shape[0]))
+            if self.mlp.batch_size is not None and \
+               value.shape[0] != self.mlp.batch_size:
+                raise ValueError("state_below should have batch size " +
+                                 str(self.dbm.batch_size) +
+                                 " but has " + str(value.shape[0]))
 
         self.desired_space.validate(state_below)
         assert state_below.ndim == 2
@@ -1046,21 +1037,8 @@ class Softmax(Layer):
 
         return rval
 
+    @wraps(Layer.cost)
     def cost(self, Y, Y_hat):
-        """
-        Y must be one-hot binary. Y_hat is a softmax estimate.
-        of Y. Returns negative log probability of Y under the Y_hat
-        distribution.
-
-        Parameters
-        ----------
-        Y : WRITEME
-        Y_hat : WRITEME
-
-        Returns
-        -------
-        WRITEME
-        """
 
         assert hasattr(Y_hat, 'owner')
         owner = Y_hat.owner
@@ -1072,7 +1050,7 @@ class Softmax(Layer):
             owner = Y_hat.owner
             op = owner.op
         assert isinstance(op, T.nnet.Softmax)
-        z ,= owner.inputs
+        z, = owner.inputs
         assert z.ndim == 2
 
         z = z - z.max(axis=1).dimshuffle(0, 'x')
@@ -1085,21 +1063,8 @@ class Softmax(Layer):
 
         return - rval
 
+    @wraps(Layer.cost_matrix)
     def cost_matrix(self, Y, Y_hat):
-        """
-        Y must be one-hot binary. Y_hat is a softmax estimate.
-        of Y. Returns negative log probability of Y under the Y_hat
-        distribution.
-
-        Parameters
-        ----------
-        Y : WRITEME
-        Y_hat : WRITEME
-
-        Returns
-        -------
-        WRITEME
-        """
 
         assert hasattr(Y_hat, 'owner')
         owner = Y_hat.owner
@@ -1111,7 +1076,7 @@ class Softmax(Layer):
             owner = Y_hat.owner
             op = owner.op
         assert isinstance(op, T.nnet.Softmax)
-        z ,= owner.inputs
+        z, = owner.inputs
         assert z.ndim == 2
 
         z = z - z.max(axis=1).dimshuffle(0, 'x')
@@ -1121,35 +1086,26 @@ class Softmax(Layer):
 
         return -log_prob_of
 
+    @wraps(Layer.get_weight_decay)
     def get_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
         return coeff * T.sqr(self.W).sum()
 
+    @wraps(Layer.get_l1_weight_decay)
     def get_l1_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
         W = self.W
         return coeff * abs(W).sum()
 
+    @wraps(Layer.censor_updates)
     def censor_updates(self, updates):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if self.no_affine:
             return
         if self.max_row_norm is not None:
@@ -1158,7 +1114,8 @@ class Softmax(Layer):
                 updated_W = updates[W]
                 row_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=1))
                 desired_norms = T.clip(row_norms, 0, self.max_row_norm)
-                updates[W] = updated_W * (desired_norms / (1e-7 + row_norms)).dimshuffle(0, 'x')
+                scales = desired_norms / (1e-7 + row_norms)
+                updates[W] = updated_W * scales.dimshuffle(0, 'x')
         if self.max_col_norm is not None:
             assert self.max_row_norm is None
             W = self.W
@@ -1179,17 +1136,16 @@ class SoftmaxPool(Layer):
     def __init__(self,
                  detector_layer_dim,
                  layer_name,
-                 pool_size = 1,
-                 irange = None,
-                 sparse_init = None,
-                 sparse_stdev = 1.,
-                 include_prob = 1.0,
-                 init_bias = 0.,
-                 W_lr_scale = None,
-                 b_lr_scale = None,
-                 mask_weights = None,
-                 max_col_norm = None
-        ):
+                 pool_size=1,
+                 irange=None,
+                 sparse_init=None,
+                 sparse_stdev=1.,
+                 include_prob=1.0,
+                 init_bias=0.,
+                 W_lr_scale=None,
+                 b_lr_scale=None,
+                 mask_weights=None,
+                 max_col_norm=None):
         """
         Parameters
         ----------
@@ -1212,14 +1168,11 @@ class SoftmaxPool(Layer):
         self.__dict__.update(locals())
         del self.self
 
-        self.b = sharedX( np.zeros((self.detector_layer_dim,)) + init_bias, name = layer_name + '_b')
+        self.b = sharedX(np.zeros((self.detector_layer_dim,)) + init_bias,
+                         name=(layer_name + '_b'))
 
+    @wraps(Layer.get_lr_scalers)
     def get_lr_scalers(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         if not hasattr(self, 'W_lr_scale'):
             self.W_lr_scale = None
@@ -1238,16 +1191,8 @@ class SoftmaxPool(Layer):
 
         return rval
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
-
-            WRITEME
-
-        Notes
-        -----
-        This resets parameters!
-        """
 
         self.input_space = space
 
@@ -1258,7 +1203,6 @@ class SoftmaxPool(Layer):
             self.requires_reformat = True
             self.input_dim = space.get_total_dimension()
             self.desired_space = VectorSpace(self.input_dim)
-
 
         if not (self.detector_layer_dim % self.pool_size == 0):
             raise ValueError("detector_layer_dim = %d, pool_size = %d. "
@@ -1277,15 +1221,17 @@ class SoftmaxPool(Layer):
             W = rng.uniform(-self.irange,
                             self.irange,
                             (self.input_dim, self.detector_layer_dim)) * \
-                (rng.uniform(0.,1., (self.input_dim, self.detector_layer_dim))
+                (rng.uniform(0., 1., (self.input_dim, self.detector_layer_dim))
                  < self.include_prob)
         else:
             assert self.sparse_init is not None
             W = np.zeros((self.input_dim, self.detector_layer_dim))
+
             def mask_rejects(idx, i):
                 if self.mask_weights is None:
                     return False
                 return self.mask_weights[idx, i] == 0.
+
             for i in xrange(self.detector_layer_dim):
                 assert self.sparse_init <= self.input_dim
                 for j in xrange(self.sparse_init):
@@ -1300,11 +1246,11 @@ class SoftmaxPool(Layer):
 
         self.transformer = MatrixMul(W)
 
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         assert W.name is not None
 
         if self.mask_weights is not None:
-            expected_shape =  (self.input_dim, self.detector_layer_dim)
+            expected_shape = (self.input_dim, self.detector_layer_dim)
             if expected_shape != self.mask_weights.shape:
                 raise ValueError("Expected mask with shape " +
                                  str(expected_shape) +
@@ -1312,38 +1258,31 @@ class SoftmaxPool(Layer):
                                  str(self.mask_weights.shape))
             self.mask = sharedX(self.mask_weights)
 
+    @wraps(Layer.censor_updates)
     def censor_updates(self, updates):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         # Patch old pickle files
         if not hasattr(self, 'mask_weights'):
             self.mask_weights = None
 
         if self.mask_weights is not None:
-            W ,= self.transformer.get_params()
+            W, = self.transformer.get_params()
             if W in updates:
                 updates[W] = updates[W] * self.mask
 
         if self.max_col_norm is not None:
-            W ,= self.transformer.get_params()
+            W, = self.transformer.get_params()
             if W in updates:
                 updated_W = updates[W]
                 col_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=0))
                 desired_norms = T.clip(col_norms, 0, self.max_col_norm)
                 updates[W] = updated_W * (desired_norms / (1e-7 + col_norms))
 
+    @wraps(Layer.get_params)
     def get_params(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         assert self.b.name is not None
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         assert W.name is not None
         rval = self.transformer.get_params()
         assert not isinstance(rval, set)
@@ -1352,54 +1291,43 @@ class SoftmaxPool(Layer):
         rval.append(self.b)
         return rval
 
+    @wraps(Layer.get_weight_decay)
     def get_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         return coeff * T.sqr(W).sum()
 
+    @wraps(Layer.get_l1_weight_decay)
     def get_l1_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         return coeff * abs(W).sum()
 
+    @wraps(Layer.get_weights)
     def get_weights(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if self.requires_reformat:
             # This is not really an unimplemented case.
             # We actually don't know how to format the weights
             # in design space. We got the data in topo space
             # and we don't have access to the dataset
             raise NotImplementedError()
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         return W.get_value()
 
+    @wraps(Layer.set_weights)
     def set_weights(self, weights):
-        """
-        .. todo::
 
-            WRITEME
-        """
         W, = self.transformer.get_params()
         W.set_value(weights)
 
+    @wraps(Layer.set_biases)
     def set_biases(self, biases):
         """
         .. todo::
@@ -1408,28 +1336,19 @@ class SoftmaxPool(Layer):
         """
         self.b.set_value(biases)
 
+    @wraps(Layer.get_biases)
     def get_biases(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.b.get_value()
 
+    @wraps(Layer.get_weights_format)
     def get_weights_format(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return ('v', 'h')
 
+    @wraps(Layer.get_weights_view_shape)
     def get_weights_view_shape(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         total = self.detector_layer_dim
         cols = self.pool_size
         if cols == 1:
@@ -1440,18 +1359,13 @@ class SoftmaxPool(Layer):
         rows = total / cols
         return rows, cols
 
-
+    @wraps(Layer.get_weights_topo)
     def get_weights_topo(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         if not isinstance(self.input_space, Conv2DSpace):
             raise NotImplementedError()
 
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
 
         W = W.T
 
@@ -1464,14 +1378,10 @@ class SoftmaxPool(Layer):
 
         return function([], W)()
 
+    @wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
-
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
 
         assert W.ndim == 2
 
@@ -1480,31 +1390,24 @@ class SoftmaxPool(Layer):
         row_norms = T.sqrt(sq_W.sum(axis=1))
         col_norms = T.sqrt(sq_W.sum(axis=0))
 
-        return OrderedDict([
-                            ('row_norms_min'  , row_norms.min()),
-                            ('row_norms_mean' , row_norms.mean()),
-                            ('row_norms_max'  , row_norms.max()),
-                            ('col_norms_min'  , col_norms.min()),
-                            ('col_norms_mean' , col_norms.mean()),
-                            ('col_norms_max'  , col_norms.max()),
-                            ])
+        return OrderedDict([('row_norms_min',  row_norms.min()),
+                            ('row_norms_mean', row_norms.mean()),
+                            ('row_norms_max',  row_norms.max()),
+                            ('col_norms_min',  col_norms.min()),
+                            ('col_norms_mean', col_norms.mean()),
+                            ('col_norms_max',  col_norms.max()), ])
 
-
+    @wraps(Layer.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         P = state
 
         rval = OrderedDict()
 
         if self.pool_size == 1:
-            vars_and_prefixes = [ (P,'') ]
+            vars_and_prefixes = [(P, '')]
         else:
-            vars_and_prefixes = [ (P, 'p_') ]
+            vars_and_prefixes = [(P, 'p_')]
 
         for var, prefix in vars_and_prefixes:
             v_max = var.max(axis=0)
@@ -1512,14 +1415,14 @@ class SoftmaxPool(Layer):
             v_mean = var.mean(axis=0)
             v_range = v_max - v_min
 
-            # max_x.mean_u is "the mean over *u*nits of the max over e*x*amples"
-            # The x and u are included in the name because otherwise its hard
-            # to remember which axis is which when reading the monitor
-            # I use inner.outer rather than outer_of_inner or something like that
-            # because I want mean_x.* to appear next to each other in the alphabetical
-            # list, as these are commonly plotted together
-            for key, val in [
-                             ('max_x.max_u', v_max.max()),
+            # max_x.mean_u is "the mean over *u*nits of the max over
+            # e*x*amples" The x and u are included in the name because
+            # otherwise its hard to remember which axis is which when reading
+            # the monitor I use inner.outer rather than outer_of_inner or
+            # something like that because I want mean_x.* to appear next to
+            # each other in the alphabetical list, as these are commonly
+            # plotted together
+            for key, val in [('max_x.max_u', v_max.max()),
                              ('max_x.mean_u', v_max.mean()),
                              ('max_x.min_u', v_max.min()),
                              ('min_x.max_u', v_min.max()),
@@ -1530,18 +1433,13 @@ class SoftmaxPool(Layer):
                              ('range_x.min_u', v_range.min()),
                              ('mean_x.max_u', v_mean.max()),
                              ('mean_x.mean_u', v_mean.mean()),
-                             ('mean_x.min_u', v_mean.min())
-                             ]:
+                             ('mean_x.min_u', v_mean.min())]:
                 rval[prefix+key] = val
 
         return rval
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         self.input_space.validate(state_below)
 
@@ -1549,15 +1447,19 @@ class SoftmaxPool(Layer):
             if not isinstance(state_below, tuple):
                 for sb in get_debug_values(state_below):
                     if sb.shape[0] != self.dbm.batch_size:
-                        raise ValueError("self.dbm.batch_size is %d but got shape of %d" % (self.dbm.batch_size, sb.shape[0]))
-                    assert reduce(lambda x,y: x * y, sb.shape[1:]) == self.input_dim
+                        raise ValueError("self.dbm.batch_size is %d but got "
+                                         "shape of %d" % (self.dbm.batch_size,
+                                                          sb.shape[0]))
+                    assert (reduce(lambda x, y: x * y, sb.shape[1:]) ==
+                            self.input_dim)
 
-            state_below = self.input_space.format_as(state_below, self.desired_space)
+            state_below = self.input_space.format_as(state_below,
+                                                     self.desired_space)
 
         z = self.transformer.lmul(state_below) + self.b
         if self.layer_name is not None:
             z.name = self.layer_name + '_z'
-        p,h = max_pool_channels(z, self.pool_size)
+        p, h = max_pool_channels(z, self.pool_size)
 
         p.name = self.layer_name + '_p_'
 
@@ -1573,21 +1475,22 @@ class Linear(Layer):
     def __init__(self,
                  dim,
                  layer_name,
-                 irange = None,
-                 istdev = None,
-                 sparse_init = None,
-                 sparse_stdev = 1.,
-                 include_prob = 1.0,
-                 init_bias = 0.,
-                 W_lr_scale = None,
-                 b_lr_scale = None,
-                 mask_weights = None,
-                 max_row_norm = None,
-                 max_col_norm = None,
-                 softmax_columns = False,
-                 copy_input = 0,
-                 use_abs_loss = False,
-                 use_bias = True):
+                 irange=None,
+                 istdev=None,
+                 sparse_init=None,
+                 sparse_stdev=1.,
+                 include_prob=1.0,
+                 init_bias=0.,
+                 W_lr_scale=None,
+                 b_lr_scale=None,
+                 mask_weights=None,
+                 max_row_norm=None,
+                 max_col_norm=None,
+                 min_col_norm=None,
+                 softmax_columns=False,
+                 copy_input=0,
+                 use_abs_loss=False,
+                 use_bias=True):
         """
         Parameters
         ----------
@@ -1607,6 +1510,7 @@ class Linear(Layer):
         mask_weights : WRITEME
         max_row_norm : WRITEME
         max_col_norm : WRITEME
+        min_col_norm : WRITEME
         softmax_columns : WRITEME
         copy_input : WRITEME
         use_abs_loss : WRITEME
@@ -1620,17 +1524,14 @@ class Linear(Layer):
         del self.self
 
         if use_bias:
-            self.b = sharedX( np.zeros((self.dim,)) + init_bias, name = layer_name + '_b')
+            self.b = sharedX(np.zeros((self.dim,)) + init_bias,
+                             name=(layer_name + '_b'))
         else:
             assert b_lr_scale is None
             init_bias is None
 
+    @wraps(Layer.get_lr_scalers)
     def get_lr_scalers(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         if not hasattr(self, 'W_lr_scale'):
             self.W_lr_scale = None
@@ -1649,16 +1550,8 @@ class Linear(Layer):
 
         return rval
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
-
-            WRITEME
-
-        Notes
-        -----
-        This resets parameters!
-        """
 
         self.input_space = space
 
@@ -1670,7 +1563,8 @@ class Linear(Layer):
             self.input_dim = space.get_total_dimension()
             self.desired_space = VectorSpace(self.input_dim)
 
-        self.output_space = VectorSpace(self.dim + self.copy_input * self.input_dim)
+        self.output_space = VectorSpace(self.dim +
+                                        self.copy_input * self.input_dim)
 
         rng = self.mlp.rng
         if self.irange is not None:
@@ -1679,7 +1573,7 @@ class Linear(Layer):
             W = rng.uniform(-self.irange,
                             self.irange,
                             (self.input_dim, self.dim)) * \
-                (rng.uniform(0.,1., (self.input_dim, self.dim))
+                (rng.uniform(0., 1., (self.input_dim, self.dim))
                  < self.include_prob)
         elif self.istdev is not None:
             assert self.sparse_init is None
@@ -1687,10 +1581,12 @@ class Linear(Layer):
         else:
             assert self.sparse_init is not None
             W = np.zeros((self.input_dim, self.dim))
+
             def mask_rejects(idx, i):
                 if self.mask_weights is None:
                     return False
                 return self.mask_weights[idx, i] == 0.
+
             for i in xrange(self.dim):
                 assert self.sparse_init <= self.input_dim
                 for j in xrange(self.sparse_init):
@@ -1705,53 +1601,55 @@ class Linear(Layer):
 
         self.transformer = MatrixMul(W)
 
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         assert W.name is not None
 
         if self.mask_weights is not None:
-            expected_shape =  (self.input_dim, self.dim)
+            expected_shape = (self.input_dim, self.dim)
             if expected_shape != self.mask_weights.shape:
-                raise ValueError("Expected mask with shape "+str(expected_shape)+" but got "+str(self.mask_weights.shape))
+                raise ValueError("Expected mask with shape " +
+                                 str(expected_shape)+" but got " +
+                                 str(self.mask_weights.shape))
             self.mask = sharedX(self.mask_weights)
 
+    @wraps(Layer.censor_updates)
     def censor_updates(self, updates):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         if self.mask_weights is not None:
-            W ,= self.transformer.get_params()
+            W, = self.transformer.get_params()
             if W in updates:
                 updates[W] = updates[W] * self.mask
 
         if self.max_row_norm is not None:
-            W ,= self.transformer.get_params()
+            W, = self.transformer.get_params()
             if W in updates:
                 updated_W = updates[W]
                 row_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=1))
                 desired_norms = T.clip(row_norms, 0, self.max_row_norm)
-                updates[W] = updated_W * (desired_norms / (1e-7 + row_norms)).dimshuffle(0, 'x')
+                scales = desired_norms / (1e-7 + row_norms)
+                updates[W] = updated_W * scales.dimshuffle(0, 'x')
 
-        if self.max_col_norm is not None:
+        if self.max_col_norm is not None or self.min_col_norm is not None:
             assert self.max_row_norm is None
-            W ,= self.transformer.get_params()
+            if self.max_col_norm is not None:
+                max_col_norm = self.max_col_norm
+            if self.min_col_norm is None:
+                self.min_col_norm = 0
+            W, = self.transformer.get_params()
             if W in updates:
                 updated_W = updates[W]
                 col_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=0))
-                desired_norms = T.clip(col_norms, 0, self.max_col_norm)
+                if self.max_col_norm is None:
+                    max_col_norm = col_norms.max()
+                desired_norms = T.clip(col_norms,
+                                       self.min_col_norm,
+                                       max_col_norm)
                 updates[W] = updated_W * desired_norms / (1e-7 + col_norms)
 
-
+    @wraps(Layer.get_params)
     def get_params(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
-        assert self.b.name is not None
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         assert W.name is not None
         rval = self.transformer.get_params()
         assert not isinstance(rval, set)
@@ -1762,70 +1660,56 @@ class Linear(Layer):
             rval.append(self.b)
         return rval
 
+    @wraps(Layer.get_weight_decay)
     def get_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         return coeff * T.sqr(W).sum()
 
+    @wraps(Layer.get_l1_weight_decay)
     def get_l1_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         return coeff * abs(W).sum()
 
+    @wraps(Layer.get_weights)
     def get_weights(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if self.requires_reformat:
             # This is not really an unimplemented case.
             # We actually don't know how to format the weights
             # in design space. We got the data in topo space
             # and we don't have access to the dataset
             raise NotImplementedError()
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
 
-        W =  W.get_value()
+        W = W.get_value()
 
         if self.softmax_columns:
             P = np.exp(W)
             Z = np.exp(W).sum(axis=0)
-            rval =  P / Z
+            rval = P / Z
             return rval
         return W
 
+    @wraps(Layer.set_weights)
     def set_weights(self, weights):
-        """
-        .. todo::
 
-            WRITEME
-        """
         W, = self.transformer.get_params()
         W.set_value(weights)
 
+    @wraps(Layer.set_biases)
     def set_biases(self, biases):
-        """
-        .. todo::
 
-            WRITEME
-        """
         self.b.set_value(biases)
 
+    @wraps(Layer.get_biases)
     def get_biases(self):
         """
         .. todo::
@@ -1834,43 +1718,33 @@ class Linear(Layer):
         """
         return self.b.get_value()
 
+    @wraps(Layer.get_weights_format)
     def get_weights_format(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return ('v', 'h')
 
+    @wraps(Layer.get_weights_topo)
     def get_weights_topo(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         if not isinstance(self.input_space, Conv2DSpace):
             raise NotImplementedError()
 
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
 
         W = W.T
 
         W = W.reshape((self.dim, self.input_space.shape[0],
-                       self.input_space.shape[1], self.input_space.num_channels))
+                       self.input_space.shape[1],
+                       self.input_space.num_channels))
 
         W = Conv2DSpace.convert(W, self.input_space.axes, ('b', 0, 1, 'c'))
 
         return function([], W)()
 
+    @wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
-
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
 
         assert W.ndim == 2
 
@@ -1879,22 +1753,17 @@ class Linear(Layer):
         row_norms = T.sqrt(sq_W.sum(axis=1))
         col_norms = T.sqrt(sq_W.sum(axis=0))
 
-        return OrderedDict([
-                            ('row_norms_min'  , row_norms.min()),
-                            ('row_norms_mean' , row_norms.mean()),
-                            ('row_norms_max'  , row_norms.max()),
-                            ('col_norms_min'  , col_norms.min()),
-                            ('col_norms_mean' , col_norms.mean()),
-                            ('col_norms_max'  , col_norms.max()),
-                            ])
+        return OrderedDict([('row_norms_min',  row_norms.min()),
+                            ('row_norms_mean', row_norms.mean()),
+                            ('row_norms_max',  row_norms.max()),
+                            ('col_norms_min',  col_norms.min()),
+                            ('col_norms_mean', col_norms.mean()),
+                            ('col_norms_max',  col_norms.max()), ])
 
+    @wraps(Layer.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state, target=None):
-        """
-        .. todo::
 
-            WRITEME
-        """
-        rval =  OrderedDict()
+        rval = OrderedDict()
 
         mx = state.max(axis=0)
         mean = state.mean(axis=0)
@@ -1932,58 +1801,57 @@ class Linear(Layer):
             if not isinstance(state_below, tuple):
                 for sb in get_debug_values(state_below):
                     if sb.shape[0] != self.dbm.batch_size:
-                        raise ValueError("self.dbm.batch_size is %d but got shape of %d" % (self.dbm.batch_size, sb.shape[0]))
-                    assert reduce(lambda x,y: x * y, sb.shape[1:]) == self.input_dim
+                        raise ValueError("self.dbm.batch_size is %d but got "
+                                         "shape of %d" % (self.dbm.batch_size,
+                                                          sb.shape[0]))
+                    assert (reduce(lambda x, y: x * y, sb.shape[1:]) ==
+                            self.input_dim)
 
-            state_below = self.input_space.format_as(state_below, self.desired_space)
+            state_below = self.input_space.format_as(state_below,
+                                                     self.desired_space)
+
+        # Support old pickle files
+        if not hasattr(self, 'softmax_columns'):
+            self.softmax_columns = False
 
         if self.softmax_columns:
             W, = self.transformer.get_params()
             W = W.T
             W = T.nnet.softmax(W)
             W = W.T
-            z = T.dot(state_below, W) + self.b
+            z = T.dot(state_below, W)
+            if self.use_bias:
+                z += self.b
         else:
-            z = self.transformer.lmul(state_below) + self.b
+            z = self.transformer.lmul(state_below)
+            if self.use_bias:
+                z += self.b
         if self.layer_name is not None:
             z.name = self.layer_name + '_z'
         if self.copy_input:
             z = T.concatenate((z, state_below), axis=1)
         return z
 
-
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
 
-            WRITEME
-        """
         # TODO: Refactor More Better(tm)
         p = self._linear_part(state_below)
         return p
 
+    @wraps(Layer.cost)
     def cost(self, Y, Y_hat):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.cost_from_cost_matrix(self.cost_matrix(Y, Y_hat))
 
+    @wraps(Layer.cost_from_cost_matrix)
     def cost_from_cost_matrix(self, cost_matrix):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return cost_matrix.sum(axis=1).mean()
 
+    @wraps(Layer.cost_matrix)
     def cost_matrix(self, Y, Y_hat):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if(self.use_abs_loss):
             return T.abs_(Y - Y_hat)
         else:
@@ -1996,22 +1864,16 @@ class Tanh(Linear):
     input followed by a hyperbolic tangent elementwise nonlinearity.
     """
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
 
-            WRITEME
-        """
         p = self._linear_part(state_below)
         p = T.tanh(p)
         return p
 
+    @wraps(Layer.cost)
     def cost(self, *args, **kwargs):
-        """
-        .. todo::
 
-            WRITEME
-        """
         raise NotImplementedError()
 
 
@@ -2043,20 +1905,17 @@ class Sigmoid(Linear):
                            seriously overestimate your performance.
                         if 'classification':
                             get_monitor_from_state assumes target is one-hot
-                            class indicator, even though you're training the model
-                            as k independent sigmoids. gives info on how good
-                            the argmax is as a classifier
+                            class indicator, even though you're training the
+                            model as k independent sigmoids. gives info on how
+                            good the argmax is as a classifier
         """
         super(Sigmoid, self).__init__(**kwargs)
         assert monitor_style in ['classification', 'detection']
         self.monitor_style = monitor_style
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
 
-            WRITEME
-        """
         p = self._linear_part(state_below)
         p = T.nnet.sigmoid(p)
         return p
@@ -2089,9 +1948,10 @@ class Sigmoid(Linear):
         op = owner.op
 
         if not hasattr(op, 'scalar_op'):
-            raise ValueError("Expected Y_hat to be generated by an Elemwise op, got "+str(op)+" of type "+str(type(op)))
+            raise ValueError("Expected Y_hat to be generated by an Elemwise "
+                             "op, got "+str(op)+" of type "+str(type(op)))
         assert isinstance(op.scalar_op, T.nnet.sigm.ScalarSigmoid)
-        z ,= owner.inputs
+        z, = owner.inputs
 
         term_1 = Y * T.nnet.softplus(-z)
         term_2 = (1 - Y) * T.nnet.softplus(z)
@@ -2102,7 +1962,7 @@ class Sigmoid(Linear):
 
         return ave
 
-
+    @wraps(Layer.cost)
     def cost(self, Y, Y_hat):
         """
         .. todo::
@@ -2176,18 +2036,16 @@ class Sigmoid(Linear):
 
         return rval
 
+    @wraps(Layer.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state, target=None):
-        """
-        .. todo::
 
-            WRITEME
-        """
-
-        rval = super(Sigmoid, self).get_monitoring_channels_from_state(state, target)
+        rval = super(Sigmoid, self).get_monitoring_channels_from_state(state,
+                                                                       target)
 
         if target is not None:
             if self.monitor_style == 'detection':
-                rval.update(self.get_detection_channels_from_state(state, target))
+                rval.update(self.get_detection_channels_from_state(state,
+                                                                   target))
             else:
                 assert self.monitor_style == 'classification'
                 # Threshold Y_hat at 0.5.
@@ -2204,7 +2062,7 @@ class RectifiedLinear(Linear):
     Rectified linear MLP layer (Glorot and Bengio 2011).
     """
 
-    def __init__(self, left_slope = 0.0, **kwargs):
+    def __init__(self, left_slope=0.0, **kwargs):
         """
         .. todo::
 
@@ -2213,22 +2071,41 @@ class RectifiedLinear(Linear):
         super(RectifiedLinear, self).__init__(**kwargs)
         self.left_slope = left_slope
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
 
-            WRITEME
-        """
         p = self._linear_part(state_below)
         p = p * (p > 0.) + self.left_slope * p * (p < 0.)
         return p
 
+    @wraps(Layer.cost)
     def cost(self, *args, **kwargs):
-        """
-        .. todo::
 
-            WRITEME
+        raise NotImplementedError()
+
+
+class Softplus(Linear):
+    """
+    Softplus MLP layer
+    """
+
+    def __init__(self, **kwargs):
         """
+        Initializes an MLP layer using the softplus nonlinearity
+        h = log(1 + exp(Wx + b))
+        """
+        super(Softplus, self).__init__(**kwargs)
+
+    @wraps(Layer.fprop)
+    def fprop(self, state_below):
+
+        p = self._linear_part(state_below)
+        p = T.nnet.softplus(p)
+        return p
+
+    @wraps(Layer.cost)
+    def cost(self, *args, **kwargs):
+
         raise NotImplementedError()
 
 class SelectiveRectifiedLinear(RectifiedLinear):
@@ -2305,22 +2182,16 @@ class SpaceConverter(Layer):
         del self.self
         self._params = []
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
 
-            WRITEME
-        """
         self.input_space = space
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         return self.input_space.format_as(state_below, self.output_space)
+
 
 class ConvRectifiedLinear(Layer):
     """
@@ -2334,18 +2205,18 @@ class ConvRectifiedLinear(Layer):
                  pool_shape,
                  pool_stride,
                  layer_name,
-                 irange = None,
-                 border_mode = 'valid',
-                 sparse_init = None,
-                 include_prob = 1.0,
-                 init_bias = 0.,
-                 W_lr_scale = None,
-                 b_lr_scale = None,
-                 left_slope = 0.0,
-                 max_kernel_norm = None,
-                 pool_type = 'max',
-                 detector_normalization = None,
-                 output_normalization = None,
+                 irange=None,
+                 border_mode='valid',
+                 sparse_init=None,
+                 include_prob=1.0,
+                 init_bias=0.,
+                 W_lr_scale=None,
+                 b_lr_scale=None,
+                 left_slope=0.0,
+                 max_kernel_norm=None,
+                 pool_type='max',
+                 detector_normalization=None,
+                 output_normalization=None,
                  kernel_stride=(1, 1)):
         """
         .. todo::
@@ -2355,53 +2226,56 @@ class ConvRectifiedLinear(Layer):
          output_channels: The number of output channels the layer should have.
          kernel_shape: The shape of the convolution kernel.
          pool_shape: The shape of the spatial max pooling. A two-tuple of ints.
-         pool_stride: The stride of the spatial max pooling. Also must be square.
+         pool_stride: The stride of the spatial max pooling. Also must be
+                      square.
          layer_name: A name for this layer that will be prepended to
-         monitoring channels related to this layer.
+                     monitoring channels related to this layer.
          irange: if specified, initializes each weight randomly in
-         U(-irange, irange)
-         border_mode:A string indicating the size of the output:
-            full - The output is the full discrete linear convolution of the inputs.
+                 U(-irange, irange)
+         border_mode: A string indicating the size of the output:
+            full - The output is the full discrete linear convolution of the
+                   inputs.
             valid - The output consists only of those elements that do not rely
-            on the zero-padding.(Default)
+                    on the zero-padding.(Default)
          include_prob: probability of including a weight element in the set
-    of weights initialized to U(-irange, irange). If not included
-    it is initialized to 0.
+                       of weights initialized to U(-irange, irange). If not
+                       included it is initialized to 0.
          init_bias: All biases are initialized to this number
-         W_lr_scale:The learning rate on the weights for this layer is
-         multiplied by this scaling factor
+         W_lr_scale: The learning rate on the weights for this layer is
+                     multiplied by this scaling factor
          b_lr_scale: The learning rate on the biases for this layer is
-         multiplied by this scaling factor
+                     multiplied by this scaling factor
          left_slope: **TODO**
-         max_kernel_norm: If specifed, each kernel is constrained to have at most this
-         norm.
-         pool_type: The type of the pooling operation performed the the convolution.
-         Default pooling type is max-pooling.
+         max_kernel_norm: If specifed, each kernel is constrained to have at
+                          most this norm.
+         pool_type: The type of the pooling operation performed the the
+                    convolution. Default pooling type is max-pooling.
          detector_normalization, output_normalization:
-              if specified, should be a callable object. the state of the network is
-              optionally
-              replaced with normalization(state) at each of the 3 points in processing:
-                  detector: the maxout units can be normalized prior to the spatial
-                  pooling
-                  output: the output of the layer, after sptial pooling, can be normalized
-                  as well
-         kernel_stride: The stride of the convolution kernel. A two-tuple of ints.
+              if specified, should be a callable object. the state of the
+              network is optionally replaced with normalization(state) at each
+              of the 3 points in processing:
+                  detector: the maxout units can be normalized prior to the
+                            spatial pooling
+                  output: the output of the layer, after sptial pooling, can
+                          be normalized as well
+         kernel_stride: The stride of the convolution kernel. A two-tuple of
+                        ints.
         """
 
         if (irange is None) and (sparse_init is None):
-            raise AssertionError("You should specify either irange or sparse_init when calling the constructor of ConvRectifiedLinear.")
+            raise AssertionError("You should specify either irange or "
+                                 "sparse_init when calling the constructor of "
+                                 "ConvRectifiedLinear.")
         elif (irange is not None) and (sparse_init is not None):
-            raise AssertionError("You should specify either irange or sparse_init when calling the constructor of ConvRectifiedLinear and not both.")
+            raise AssertionError("You should specify either irange or "
+                                 "sparse_init when calling the constructor of "
+                                 "ConvRectifiedLinear and not both.")
 
         self.__dict__.update(locals())
         del self.self
 
+    @wraps(Layer.get_lr_scalers)
     def get_lr_scalers(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         if not hasattr(self, 'W_lr_scale'):
             self.W_lr_scale = None
@@ -2420,52 +2294,55 @@ class ConvRectifiedLinear(Layer):
 
         return rval
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
-
-            WRITEME
-
-        Notes
-        -----
-        This resets parameters!
-        """
 
         self.input_space = space
+
+        if not isinstance(space, Conv2DSpace):
+            raise BadInputSpaceError("ConvRectifiedLinear.set_input_space "
+                                     "expected a Conv2DSpace, got " +
+                                     str(space) + " of type " +
+                                     str(type(space)))
+
         rng = self.mlp.rng
 
         if self.border_mode == 'valid':
-            output_shape = [(self.input_space.shape[0] - self.kernel_shape[0]) / self.kernel_stride[0] + 1,
-                (self.input_space.shape[1] - self.kernel_shape[1]) / self.kernel_stride[1] + 1]
+            output_shape = [(self.input_space.shape[0]-self.kernel_shape[0]) /
+                            self.kernel_stride[0] + 1,
+                            (self.input_space.shape[1]-self.kernel_shape[1]) /
+                            self.kernel_stride[1] + 1]
         elif self.border_mode == 'full':
-            output_shape = [(self.input_space.shape[0] +  self.kernel_shape[0]) / self.kernel_stride[0] - 1,
-                    (self.input_space.shape[1] + self.kernel_shape[1]) / self.kernel_stride_stride[1] - 1]
+            output_shape = [(self.input_space.shape[0]+self.kernel_shape[0]) /
+                            self.kernel_stride[0] - 1,
+                            (self.input_space.shape[1]+self.kernel_shape[1]) /
+                            self.kernel_stride[1] - 1]
 
         self.detector_space = Conv2DSpace(shape=output_shape,
-                num_channels = self.output_channels,
-                axes = ('b', 'c', 0, 1))
+                                          num_channels=self.output_channels,
+                                          axes=('b', 'c', 0, 1))
 
         if self.irange is not None:
             assert self.sparse_init is None
             self.transformer = conv2d.make_random_conv2D(
-                    irange = self.irange,
-                    input_space = self.input_space,
-                    output_space = self.detector_space,
-                    kernel_shape = self.kernel_shape,
-                    batch_size = self.mlp.batch_size,
-                    subsample = self.kernel_stride,
-                    border_mode = self.border_mode,
-                    rng = rng)
+                irange=self.irange,
+                input_space=self.input_space,
+                output_space=self.detector_space,
+                kernel_shape=self.kernel_shape,
+                batch_size=self.mlp.batch_size,
+                subsample=self.kernel_stride,
+                border_mode=self.border_mode,
+                rng=rng)
         elif self.sparse_init is not None:
             self.transformer = conv2d.make_sparse_random_conv2D(
-                    num_nonzero = self.sparse_init,
-                    input_space = self.input_space,
-                    output_space = self.detector_space,
-                    kernel_shape = self.kernel_shape,
-                    batch_size = self.mlp.batch_size,
-                    subsample = self.kernel_stride,
-                    border_mode = self.border_mode,
-                    rng = rng)
+                num_nonzero=self.sparse_init,
+                input_space=self.input_space,
+                output_space=self.detector_space,
+                kernel_shape=self.kernel_shape,
+                batch_size=self.mlp.batch_size,
+                subsample=self.kernel_stride,
+                border_mode=self.border_mode,
+                rng=rng)
         W, = self.transformer.get_params()
         W.name = 'W'
 
@@ -2475,29 +2352,32 @@ class ConvRectifiedLinear(Layer):
         print 'Input shape: ', self.input_space.shape
         print 'Detector space: ', self.detector_space.shape
 
-
         assert self.pool_type in ['max', 'mean']
 
         dummy_batch_size = self.mlp.batch_size
         if dummy_batch_size is None:
             dummy_batch_size = 2
-        dummy_detector = sharedX(self.detector_space.get_origin_batch(dummy_batch_size))
+        dummy_detector = sharedX(
+            self.detector_space.get_origin_batch(dummy_batch_size))
         if self.pool_type == 'max':
-            dummy_p = max_pool(bc01=dummy_detector, pool_shape=self.pool_shape,
-                    pool_stride=self.pool_stride,
-                    image_shape=self.detector_space.shape)
+            dummy_p = max_pool(bc01=dummy_detector,
+                               pool_shape=self.pool_shape,
+                               pool_stride=self.pool_stride,
+                               image_shape=self.detector_space.shape)
         elif self.pool_type == 'mean':
-            dummy_p = mean_pool(bc01=dummy_detector, pool_shape=self.pool_shape,
-                    pool_stride=self.pool_stride,
-                    image_shape=self.detector_space.shape)
+            dummy_p = mean_pool(bc01=dummy_detector,
+                                pool_shape=self.pool_shape,
+                                pool_stride=self.pool_stride,
+                                image_shape=self.detector_space.shape)
         dummy_p = dummy_p.eval()
-        self.output_space = Conv2DSpace(shape=[dummy_p.shape[2], dummy_p.shape[3]],
-                num_channels = self.output_channels, axes = ('b', 'c', 0, 1) )
+        self.output_space = Conv2DSpace(shape=[dummy_p.shape[2],
+                                               dummy_p.shape[3]],
+                                        num_channels=self.output_channels,
+                                        axes=('b', 'c', 0, 1))
 
         print 'Output space: ', self.output_space.shape
 
-
-
+    @wraps(Layer.censor_updates)
     def censor_updates(self, updates):
         """
         .. todo::
@@ -2506,14 +2386,15 @@ class ConvRectifiedLinear(Layer):
         """
 
         if self.max_kernel_norm is not None:
-            W ,= self.transformer.get_params()
+            W, = self.transformer.get_params()
             if W in updates:
                 updated_W = updates[W]
-                row_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=(1,2,3)))
+                row_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=(1, 2, 3)))
                 desired_norms = T.clip(row_norms, 0, self.max_kernel_norm)
-                updates[W] = updated_W * (desired_norms / (1e-7 + row_norms)).dimshuffle(0, 'x', 'x', 'x')
+                scales = desired_norms / (1e-7 + row_norms)
+                updates[W] = updated_W * scales.dimshuffle(0, 'x', 'x', 'x')
 
-
+    @wraps(Layer.get_params)
     def get_params(self):
         """
         .. todo::
@@ -2521,7 +2402,7 @@ class ConvRectifiedLinear(Layer):
             WRITEME
         """
         assert self.b.name is not None
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         assert W.name is not None
         rval = self.transformer.get_params()
         assert not isinstance(rval, set)
@@ -2530,101 +2411,70 @@ class ConvRectifiedLinear(Layer):
         rval.append(self.b)
         return rval
 
+    @wraps(Layer.get_weight_decay)
     def get_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         return coeff * T.sqr(W).sum()
 
+    @wraps(Layer.get_l1_weight_decay)
     def get_l1_weight_decay(self, coeff):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if isinstance(coeff, str):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
         return coeff * abs(W).sum()
 
+    @wraps(Layer.set_weights)
     def set_weights(self, weights):
-        """
-        .. todo::
 
-            WRITEME
-        """
         W, = self.transformer.get_params()
         W.set_value(weights)
 
+    @wraps(Layer.set_biases)
     def set_biases(self, biases):
-        """
-        .. todo::
 
-            WRITEME
-        """
         self.b.set_value(biases)
 
+    @wraps(Layer.get_biases)
     def get_biases(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.b.get_value()
 
+    @wraps(Layer.get_weights_format)
     def get_weights_format(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return ('v', 'h')
 
+    @wraps(Layer.get_weights_topo)
     def get_weights_topo(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         outp, inp, rows, cols = range(4)
         raw = self.transformer._filters.get_value()
 
-        return np.transpose(raw, (outp,rows,cols,inp))
+        return np.transpose(raw, (outp, rows, cols, inp))
 
+    @wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
-
-        W ,= self.transformer.get_params()
+        W, = self.transformer.get_params()
 
         assert W.ndim == 4
 
         sq_W = T.sqr(W)
 
-        row_norms = T.sqrt(sq_W.sum(axis=(1,2,3)))
+        row_norms = T.sqrt(sq_W.sum(axis=(1, 2, 3)))
 
-        return OrderedDict([
-                            ('kernel_norms_min'  , row_norms.min()),
-                            ('kernel_norms_mean' , row_norms.mean()),
-                            ('kernel_norms_max'  , row_norms.max()),
-                            ])
+        return OrderedDict([('kernel_norms_min',  row_norms.min()),
+                            ('kernel_norms_mean', row_norms.mean()),
+                            ('kernel_norms_max',  row_norms.max()), ])
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         self.input_space.validate(state_below)
 
@@ -2644,13 +2494,15 @@ class ConvRectifiedLinear(Layer):
 
         assert self.pool_type in ['max', 'mean']
         if self.pool_type == 'max':
-            p = max_pool(bc01=d, pool_shape=self.pool_shape,
-                    pool_stride=self.pool_stride,
-                    image_shape=self.detector_space.shape)
+            p = max_pool(bc01=d,
+                         pool_shape=self.pool_shape,
+                         pool_stride=self.pool_stride,
+                         image_shape=self.detector_space.shape)
         elif self.pool_type == 'mean':
-            p = mean_pool(bc01=d, pool_shape=self.pool_shape,
-                    pool_stride=self.pool_stride,
-                    image_shape=self.detector_space.shape)
+            p = mean_pool(bc01=d,
+                          pool_shape=self.pool_shape,
+                          pool_stride=self.pool_stride,
+                          image_shape=self.detector_space.shape)
 
         self.output_space.validate(p)
 
@@ -2661,6 +2513,7 @@ class ConvRectifiedLinear(Layer):
             p = self.output_normalization(p)
 
         return p
+
 
 def max_pool(bc01, pool_shape, pool_stride, image_shape):
     """
@@ -2692,11 +2545,15 @@ def max_pool(bc01, pool_shape, pool_stride, image_shape):
         assert p_strd * (rval - 1) + p_shp < im_shp
         return rval
     # Compute starting row of the last pool
-    last_pool_r = last_pool(image_shape[0] ,pool_shape[0], pool_stride[0]) * pool_stride[0]
+    last_pool_r = last_pool(image_shape[0],
+                            pool_shape[0],
+                            pool_stride[0]) * pool_stride[0]
     # Compute number of rows needed in image for all indexes to work out
     required_r = last_pool_r + pr
 
-    last_pool_c = last_pool(image_shape[1] ,pool_shape[1], pool_stride[1]) * pool_stride[1]
+    last_pool_c = last_pool(image_shape[1],
+                            pool_shape[1],
+                            pool_stride[1]) * pool_stride[1]
     required_c = last_pool_c + pc
 
     for bc01v in get_debug_values(bc01):
@@ -2705,25 +2562,33 @@ def max_pool(bc01, pool_shape, pool_stride, image_shape):
         assert bc01v.shape[3] == image_shape[1]
 
     wide_infinity = T.alloc(T.constant(-np.inf, dtype=config.floatX),
-            bc01.shape[0], bc01.shape[1], required_r, required_c)
+                            bc01.shape[0],
+                            bc01.shape[1],
+                            required_r,
+                            required_c)
 
     name = bc01.name
     if name is None:
         name = 'anon_bc01'
-    bc01 = T.set_subtensor(wide_infinity[:,:, 0:r, 0:c], bc01)
+    bc01 = T.set_subtensor(wide_infinity[:, :, 0:r, 0:c], bc01)
     bc01.name = 'infinite_padded_' + name
 
     for row_within_pool in xrange(pool_shape[0]):
         row_stop = last_pool_r + row_within_pool + 1
         for col_within_pool in xrange(pool_shape[1]):
             col_stop = last_pool_c + col_within_pool + 1
-            cur = bc01[:,:,row_within_pool:row_stop:rs, col_within_pool:col_stop:cs]
-            cur.name = 'max_pool_cur_'+bc01.name+'_'+str(row_within_pool)+'_'+str(col_within_pool)
+            cur = bc01[:,
+                       :,
+                       row_within_pool:row_stop:rs,
+                       col_within_pool:col_stop:cs]
+            cur.name = ('max_pool_cur_' + bc01.name + '_' +
+                        str(row_within_pool) + '_' + str(col_within_pool))
             if mx is None:
                 mx = cur
             else:
                 mx = T.maximum(mx, cur)
-                mx.name = 'max_pool_mx_'+bc01.name+'_'+str(row_within_pool)+'_'+str(col_within_pool)
+                mx.name = ('max_pool_mx_' + bc01.name + '_' +
+                           str(row_within_pool) + '_' + str(col_within_pool))
 
     mx.name = 'max_pool('+name+')'
 
@@ -2732,6 +2597,7 @@ def max_pool(bc01, pool_shape, pool_stride, image_shape):
         assert not np.any(np.isinf(mxv))
 
     return mx
+
 
 def max_pool_c01b(c01b, pool_shape, pool_stride, image_shape):
     """
@@ -2759,11 +2625,15 @@ def max_pool_c01b(c01b, pool_shape, pool_stride, image_shape):
         assert p_strd * (rval - 1) + p_shp < im_shp
         return rval
     # Compute starting row of the last pool
-    last_pool_r = last_pool(image_shape[0] ,pool_shape[0], pool_stride[0]) * pool_stride[0]
+    last_pool_r = last_pool(image_shape[0],
+                            pool_shape[0],
+                            pool_stride[0]) * pool_stride[0]
     # Compute number of rows needed in image for all indexes to work out
     required_r = last_pool_r + pr
 
-    last_pool_c = last_pool(image_shape[1] ,pool_shape[1], pool_stride[1]) * pool_stride[1]
+    last_pool_c = last_pool(image_shape[1],
+                            pool_shape[1],
+                            pool_stride[1]) * pool_stride[1]
     required_c = last_pool_c + pc
 
     for c01bv in get_debug_values(c01b):
@@ -2771,8 +2641,11 @@ def max_pool_c01b(c01b, pool_shape, pool_stride, image_shape):
         assert c01bv.shape[1] == r
         assert c01bv.shape[2] == c
 
-    wide_infinity = T.alloc(-np.inf, c01b.shape[0], required_r, required_c, c01b.shape[3])
-
+    wide_infinity = T.alloc(-np.inf,
+                            c01b.shape[0],
+                            required_r,
+                            required_c,
+                            c01b.shape[3])
 
     name = c01b.name
     if name is None:
@@ -2784,13 +2657,18 @@ def max_pool_c01b(c01b, pool_shape, pool_stride, image_shape):
         row_stop = last_pool_r + row_within_pool + 1
         for col_within_pool in xrange(pool_shape[1]):
             col_stop = last_pool_c + col_within_pool + 1
-            cur = c01b[:,row_within_pool:row_stop:rs, col_within_pool:col_stop:cs, :]
-            cur.name = 'max_pool_cur_'+c01b.name+'_'+str(row_within_pool)+'_'+str(col_within_pool)
+            cur = c01b[:,
+                       row_within_pool:row_stop:rs,
+                       col_within_pool:col_stop:cs,
+                       :]
+            cur.name = ('max_pool_cur_' + c01b.name + '_' +
+                        str(row_within_pool) + '_' + str(col_within_pool))
             if mx is None:
                 mx = cur
             else:
                 mx = T.maximum(mx, cur)
-                mx.name = 'max_pool_mx_'+c01b.name+'_'+str(row_within_pool)+'_'+str(col_within_pool)
+                mx.name = ('max_pool_mx_' + c01b.name + '_' +
+                           str(row_within_pool)+'_'+str(col_within_pool))
 
     mx.name = 'max_pool('+name+')'
 
@@ -2799,6 +2677,7 @@ def max_pool_c01b(c01b, pool_shape, pool_stride, image_shape):
         assert not np.any(np.isinf(mxv))
 
     return mx
+
 
 def mean_pool(bc01, pool_shape, pool_stride, image_shape):
     """
@@ -2824,11 +2703,15 @@ def mean_pool(bc01, pool_shape, pool_stride, image_shape):
         assert p_strd * (rval - 1) + p_shp < im_shp
         return rval
     # Compute starting row of the last pool
-    last_pool_r = last_pool(image_shape[0] ,pool_shape[0], pool_stride[0]) * pool_stride[0]
+    last_pool_r = last_pool(image_shape[0],
+                            pool_shape[0],
+                            pool_stride[0]) * pool_stride[0]
     # Compute number of rows needed in image for all indexes to work out
     required_r = last_pool_r + pr
 
-    last_pool_c = last_pool(image_shape[1] ,pool_shape[1], pool_stride[1]) * pool_stride[1]
+    last_pool_c = last_pool(image_shape[1],
+                            pool_shape[1],
+                            pool_stride[1]) * pool_stride[1]
     required_c = last_pool_c + pc
 
     for bc01v in get_debug_values(bc01):
@@ -2836,33 +2719,46 @@ def mean_pool(bc01, pool_shape, pool_stride, image_shape):
         assert bc01v.shape[2] == image_shape[0]
         assert bc01v.shape[3] == image_shape[1]
 
-    wide_infinity = T.alloc(-np.inf, bc01.shape[0], bc01.shape[1], required_r, required_c)
-
+    wide_infinity = T.alloc(-np.inf,
+                            bc01.shape[0],
+                            bc01.shape[1],
+                            required_r,
+                            required_c)
 
     name = bc01.name
     if name is None:
         name = 'anon_bc01'
-    bc01 = T.set_subtensor(wide_infinity[:,:, 0:r, 0:c], bc01)
+    bc01 = T.set_subtensor(wide_infinity[:, :, 0:r, 0:c], bc01)
     bc01.name = 'infinite_padded_' + name
 
-    # Create a 'mask' used to keep count of the number of elements summed for each position
-    wide_infinity_count = T.alloc(0, bc01.shape[0], bc01.shape[1], required_r, required_c)
-    bc01_count = T.set_subtensor(wide_infinity_count[:,:, 0:r, 0:c], 1)
+    # Create a 'mask' used to keep count of the number of elements summed for
+    # each position
+    wide_infinity_count = T.alloc(0, bc01.shape[0], bc01.shape[1], required_r,
+                                  required_c)
+    bc01_count = T.set_subtensor(wide_infinity_count[:, :, 0:r, 0:c], 1)
 
     for row_within_pool in xrange(pool_shape[0]):
         row_stop = last_pool_r + row_within_pool + 1
         for col_within_pool in xrange(pool_shape[1]):
             col_stop = last_pool_c + col_within_pool + 1
-            cur = bc01[:,:,row_within_pool:row_stop:rs, col_within_pool:col_stop:cs]
-            cur.name = 'mean_pool_cur_'+bc01.name+'_'+str(row_within_pool)+'_'+str(col_within_pool)
-            cur_count = bc01_count[:,:,row_within_pool:row_stop:rs, col_within_pool:col_stop:cs]
+            cur = bc01[:,
+                       :,
+                       row_within_pool:row_stop:rs,
+                       col_within_pool:col_stop:cs]
+            cur.name = ('mean_pool_cur_' + bc01.name + '_' +
+                        str(row_within_pool) + '_' + str(col_within_pool))
+            cur_count = bc01_count[:,
+                                   :,
+                                   row_within_pool:row_stop:rs,
+                                   col_within_pool:col_stop:cs]
             if mx is None:
                 mx = cur
                 count = cur_count
             else:
                 mx = mx + cur
                 count = count + cur_count
-                mx.name = 'mean_pool_mx_'+bc01.name+'_'+str(row_within_pool)+'_'+str(col_within_pool)
+                mx.name = ('mean_pool_mx_' + bc01.name + '_' +
+                           str(row_within_pool) + '_' + str(col_within_pool))
 
     mx /= count
     mx.name = 'mean_pool('+name+')'
@@ -2873,15 +2769,18 @@ def mean_pool(bc01, pool_shape, pool_stride, image_shape):
 
     return mx
 
+
 def WeightDecay(*args, **kwargs):
     """
     .. todo::
 
         WRITEME
     """
-    warnings.warn("pylearn2.models.mlp.WeightDecay has moved to pylearn2.costs.mlp.WeightDecay")
+    warnings.warn("pylearn2.models.mlp.WeightDecay has moved to "
+                  "pylearn2.costs.mlp.WeightDecay")
     from pylearn2.costs.mlp import WeightDecay as WD
     return WD(*args, **kwargs)
+
 
 def L1WeightDecay(*args, **kwargs):
     """
@@ -2889,17 +2788,19 @@ def L1WeightDecay(*args, **kwargs):
 
         WRITEME
     """
-    warnings.warn("pylearn2.models.mlp.L1WeightDecay has moved to pylearn2.costs.mlp.WeightDecay")
+    warnings.warn("pylearn2.models.mlp.L1WeightDecay has moved to "
+                  "pylearn2.costs.mlp.WeightDecay")
     from pylearn2.costs.mlp import L1WeightDecay as L1WD
     return L1WD(*args, **kwargs)
 
 
 class LinearGaussian(Linear):
     """
-    A Linear layer augmented with a precision vector, for modeling conditionally Gaussian data
+    A Linear layer augmented with a precision vector, for modeling
+    conditionally Gaussian data
     """
 
-    def __init__(self, init_beta, min_beta, max_beta, beta_lr_scale, ** kwargs):
+    def __init__(self, init_beta, min_beta, max_beta, beta_lr_scale, **kwargs):
         """
         .. todo::
 
@@ -2910,22 +2811,17 @@ class LinearGaussian(Linear):
         del self.self
         del self.kwargs
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
 
-            WRITEME
-        """
         super(LinearGaussian, self).set_input_space(space)
         assert isinstance(self.output_space, VectorSpace)
-        self.beta = sharedX(self.output_space.get_origin() + self.init_beta, 'beta')
+        self.beta = sharedX(self.output_space.get_origin() + self.init_beta,
+                            'beta')
 
+    @wraps(Linear.get_monitoring_channels)
     def get_monitoring_channels(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         rval = super(LinearGaussian, self).get_monitoring_channels()
         assert isinstance(rval, OrderedDict)
         rval['beta_min'] = self.beta.min()
@@ -2933,57 +2829,44 @@ class LinearGaussian(Linear):
         rval['beta_max'] = self.beta.max()
         return rval
 
+    @wraps(Linear.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state, target=None):
-        """
-        .. todo::
 
-            WRITEME
-        """
         rval = super(LinearGaussian, self).get_monitoring_channels()
         if target:
             rval['mse'] = T.sqr(state - target).mean()
         return rval
 
+    @wraps(Linear.cost)
     def cost(self, Y, Y_hat):
-        """
-        .. todo::
+        return (0.5 * T.dot(T.sqr(Y-Y_hat), self.beta).mean() -
+                0.5 * T.log(self.beta).sum())
 
-            WRITEME
-        """
-        return 0.5 * T.dot(T.sqr(Y-Y_hat), self.beta).mean() - 0.5 * T.log(self.beta).sum()
-
+    @wraps(Layer.censor_updates)
     def censor_updates(self, updates):
-        """
-        .. todo::
 
-            WRITEME
-        """
         super(LinearGaussian, self).censor_updates(updates)
 
         if self.beta in updates:
-            updates[self.beta] = T.clip(updates[self.beta], self.min_beta, self.max_beta)
+            updates[self.beta] = T.clip(updates[self.beta],
+                                        self.min_beta,
+                                        self.max_beta)
 
+    @wraps(Layer.get_lr_scalers)
     def get_lr_scalers(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         rval = super(LinearGaussian, self).get_lr_scalers()
         if self.beta_lr_scale is not None:
             rval[self.beta] = self.beta_lr_scale
         return rval
 
+    @wraps(Layer.get_params)
     def get_params(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return super(LinearGaussian, self).get_params() + [self.beta]
 
 
-def beta_from_design(design, min_var = 1e-6, max_var = 1e6):
+def beta_from_design(design, min_var=1e-6, max_var=1e6):
     """
     .. todo::
 
@@ -3040,46 +2923,31 @@ class PretrainedLayer(Layer):
         self.__dict__.update(locals())
         del self.self
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
 
-            WRITEME
-        """
         assert self.get_input_space() == space
 
+    @wraps(Layer.get_params)
     def get_params(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         if self.freeze_params:
             return []
         return self.layer_content.get_params()
 
+    @wraps(Layer.get_input_space)
     def get_input_space(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layer_content.get_input_space()
 
+    @wraps(Layer.get_output_space)
     def get_output_space(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layer_content.get_output_space()
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.layer_content.upward_pass(state_below)
 
 
@@ -3099,25 +2967,19 @@ class CompositeLayer(Layer):
         self.__dict__.update(locals())
         del self.self
 
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
 
-            WRITEME
-        """
+        self.input_space = space
 
         for layer in self.layers:
             layer.set_input_space(space)
 
         self.output_space = CompositeSpace(tuple(layer.get_output_space()
-            for layer in self.layers))
+                                                 for layer in self.layers))
 
+    @wraps(Layer.get_params)
     def get_params(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         rval = []
 
@@ -3126,34 +2988,25 @@ class CompositeLayer(Layer):
 
         return rval
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         return tuple(layer.fprop(state_below) for layer in self.layers)
 
+    @wraps(Layer.cost)
     def cost(self, Y, Y_hat):
-        """
-        .. todo::
 
-            WRITEME
-        """
+        return sum(layer.cost(Y_elem, Y_hat_elem)
+                   for layer, Y_elem, Y_hat_elem in
+                   safe_zip(self.layers, Y, Y_hat))
 
-        return sum(layer.cost(Y_elem, Y_hat_elem) for layer, Y_elem, Y_hat_elem in \
-                safe_zip(self.layers, Y, Y_hat))
-
+    @wraps(Layer.set_mlp)
     def set_mlp(self, mlp):
-        """
-        .. todo::
 
-            WRITEME
-        """
         super(CompositeLayer, self).set_mlp(mlp)
         for layer in self.layers:
             layer.set_mlp(mlp)
+
 
 class FlattenerLayer(Layer):
     """
@@ -3170,7 +3023,8 @@ class FlattenerLayer(Layer):
     There are obvious memory, performance, and readability issues with doing
     this, so really it would be better for theano to support TupleTypes.
 
-    See pylearn2.sandbox.tuple_var and the theano-dev e-mail thread "TupleType".
+    See pylearn2.sandbox.tuple_var and the theano-dev e-mail thread
+    "TupleType".
     """
 
     def __init__(self, raw_layer):
@@ -3183,45 +3037,27 @@ class FlattenerLayer(Layer):
         del self.self
         self.layer_name = raw_layer.layer_name
 
-
+    @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         self.raw_layer.set_input_space(space)
+        total_dim = self.raw_layer.get_output_space().get_total_dimension()
+        self.output_space = VectorSpace(total_dim)
 
-        self.output_space = VectorSpace(self.raw_layer.get_output_space().get_total_dimension())
-
+    @wraps(Layer.get_params)
     def get_params(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
-
         return self.raw_layer.get_params()
 
+    @wraps(Layer.fprop)
     def fprop(self, state_below):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         raw = self.raw_layer.fprop(state_below)
 
         return self.raw_layer.get_output_space().format_as(raw,
-                self.output_space)
+                                                           self.output_space)
 
+    @wraps(Layer.cost)
     def cost(self, Y, Y_hat):
-        """
-        .. todo::
-
-            WRITEME
-        """
 
         raw_space = self.raw_layer.get_output_space()
         target_space = self.output_space
@@ -3245,21 +3081,15 @@ class FlattenerLayer(Layer):
 
         return self.raw_layer.cost(raw_Y, raw_Y_hat)
 
+    @wraps(Layer.set_mlp)
     def set_mlp(self, mlp):
-        """
-        .. todo::
 
-            WRITEME
-        """
         super(FlattenerLayer, self).set_mlp(mlp)
         self.raw_layer.set_mlp(mlp)
 
+    @wraps(Layer.get_weights)
     def get_weights(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
         return self.raw_layer.get_weights()
 
 """
@@ -3513,3 +3343,10 @@ def geometric_mean_prediction(forward_props):
         presoftmax.append(out.owner.inputs[0])
     average = reduce(lambda x, y: x + y, presoftmax) / float(len(presoftmax))
     return T.nnet.softmax(average)
+
+
+class BadInputSpaceError(TypeError):
+    """
+    An error raised by an MLP layer when set_input_space is given an
+    object that is not one of the Spaces that layer supports.
+    """

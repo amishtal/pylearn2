@@ -7,6 +7,7 @@ __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
 __maintainer__ = "Ian Goodfellow"
 __email__ = "goodfeli@iro"
+from datetime import datetime
 import os
 import sys
 from pylearn2.utils import serial
@@ -14,9 +15,8 @@ import logging
 import warnings
 from pylearn2.monitor import Monitor
 from pylearn2.space import NullSpace
-from pylearn2.utils.timing import log_timing
+from pylearn2.utils.timing import log_timing, total_seconds
 from pylearn2.utils import sharedX
-import theano.tensor as T
 
 
 log = logging.getLogger(__name__)
@@ -75,21 +75,21 @@ class Train(object):
                 phase_variable = 'PYLEARN2_TRAIN_PHASE'
                 if phase_variable in os.environ:
                     phase = 'phase%d' % os.environ[phase_variable]
-                    tokens = [os.environ['PYLEARN2_TRAIN_FILE_NAME'],
+                    tokens = [os.environ['PYLEARN2_TRAIN_FILE_FULL_STEM'],
                               phase, 'pkl']
                 else:
-                    tokens = os.environ['PYLEARN2_TRAIN_FILE_NAME'], 'pkl'
+                    tokens = os.environ['PYLEARN2_TRAIN_FILE_FULL_STEM'], 'pkl'
                 self.save_path = '.'.join(tokens)
         self.save_freq = save_freq
 
-        if hasattr(self.dataset,'yaml_src'):
+        if hasattr(self.dataset, 'yaml_src'):
             self.model.dataset_yaml_src = self.dataset.yaml_src
         else:
             warnings.warn("dataset has no yaml src, model won't know what " +
                           "data it was trained on")
 
         self.extensions = extensions if extensions is not None else []
-        self.monitor_time = sharedX(value=0,name='seconds_per_epoch')
+        self.monitor_time = sharedX(value=0, name='seconds_per_epoch')
 
     def setup_extensions(self):
         """
@@ -100,25 +100,49 @@ class Train(object):
         for ext in self.extensions:
             ext.setup(self.model, self.dataset, self.algorithm)
 
-    def main_loop(self):
+    def exceeded_time_budget(self, t0, time_budget):
+        dt = total_seconds(datetime.now() - t0)
+        if time_budget is not None and dt >= time_budget:
+            log.warning("Time budget exceeded (%.3f/%d seconds).",
+                        dt, time_budget)
+            self.model.monitor.time_budget_exceeded = True
+            return True
+        else:
+            return False
+
+    def main_loop(self, time_budget=None):
         """
         Repeatedly runs an epoch of the training algorithm, runs any
         epoch-level callbacks, and saves the model.
+
+        Parameters
+        ----------
+        time_budget : int, optional
+            The maximum number of seconds before interrupting
+            training. Default is `None`, no time limit.
         """
+        t0 = datetime.now()
         if self.algorithm is None:
             self.model.monitor = Monitor.get_monitor(self.model)
+            self.model.monitor.time_budget_exceeded = False
             self.setup_extensions()
             self.run_callbacks_and_monitoring()
             while True:
+                if self.exceeded_time_budget(t0, time_budget):
+                    break
+
                 rval = self.model.train_all(dataset=self.dataset)
                 if rval is not None:
                     raise ValueError("Model.train_all should not return " +
                                      "anything. Use Model.continue_learning " +
                                      "to control whether learning continues.")
                 self.model.monitor.report_epoch()
-                if self.save_freq > 0 and self.model.monitor.epochs_seen % self.save_freq == 0:
+                extension_continue = self.run_callbacks_and_monitoring()
+                freq = self.save_freq
+                if freq > 0 and self.model.monitor.epochs_seen % freq == 0:
                     self.save()
-                continue_learning = self.model.continue_learning()
+                continue_learning = (self.model.continue_learning() and
+                                     extension_continue)
                 assert continue_learning in [True, False, 0, 1]
                 if not continue_learning:
                     break
@@ -130,7 +154,7 @@ class Train(object):
                 # to prevent an AttributeError later, but I think we could
                 # rewrite to avoid the AttributeError
                 raise RuntimeError("The algorithm is responsible for setting"
-                        " up the Monitor, but failed to.")
+                                   " up the Monitor, but failed to.")
             if len(self.model.monitor._datasets)>0:
                 # This monitoring channel keeps track of a shared variable,
                 # which does not need inputs nor data.
@@ -141,6 +165,8 @@ class Train(object):
                                                dataset=self.model.monitor._datasets[0])
             self.run_callbacks_and_monitoring()
             while True:
+                if self.exceeded_time_budget(t0, time_budget):
+                    break
                 with log_timing(log, None, final_msg='Time this epoch:',
                                 callbacks=[self.monitor_time.set_value]):
                     rval = self.algorithm.train(dataset=self.dataset)
@@ -150,10 +176,13 @@ class Train(object):
                                      "TrainingAlgorithm.continue_learning " +
                                      "to control whether learning continues.")
                 self.model.monitor.report_epoch()
-                self.run_callbacks_and_monitoring()
+                extension_continue = self.run_callbacks_and_monitoring()
                 if self.save_freq > 0 and self.model.monitor._epochs_seen % self.save_freq == 0:
                     self.save()
-                continue_learning =  self.algorithm.continue_learning(self.model)
+                continue_learning = (
+                    self.algorithm.continue_learning(self.model) and
+                    extension_continue
+                )
                 assert continue_learning in [True, False, 0, 1]
                 if not continue_learning:
                     break
@@ -168,14 +197,28 @@ class Train(object):
         .. todo::
 
             WRITEME
+
+        Returns
+        -------
+        continue_learning: bool
+            If `False`, signals that at least one train
+            extension wants to stop learning.
         """
         self.model.monitor()
+        continue_learning = True
         for extension in self.extensions:
             try:
                 extension.on_monitor(self.model, self.dataset, self.algorithm)
-            except TypeError, e:
+            except TypeError:
                 logging.warning('Failure during callback ' + str(extension))
                 raise
+            # We catch an exception here instead of relying on return
+            # values for backward compatibility. Lots of extensions
+            # exist that don't return anything, currently.
+            except StopIteration:
+                log.info("Extension requested training halt.")
+                continue_learning = False
+        return continue_learning
 
     def save(self):
         """Saves the model."""
